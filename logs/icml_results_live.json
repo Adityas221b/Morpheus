@@ -1,0 +1,135 @@
+[
+  {
+    "algorithm": "ucb1",
+    "model": "qwen3:1.7b",
+    "run": 1,
+    "elapsed": 384.50440287590027,
+    "rc": 0
+  },
+  {
+    "algorithm": "ucb1",
+    "model": "qwen3:1.7b",
+    "run": 2,
+    "elapsed": 333.31702399253845,
+    "rc": 0
+  },
+  {
+    "algorithm": "ucb1",
+    "model": "qwen3:1.7b",
+    "run": 3,
+    "elapsed": 403.24153900146484,
+    "rc": 0
+  },
+  {
+    "algorithm": "ucb1",
+    "model": "qwen3:8b",
+    "run": 1,
+    "elapsed": 1056.2887575626373,
+    "rc": 0
+  },
+  {
+    "algorithm": "ucb1",
+    "model": "qwen3:8b",
+    "run": 2,
+    "elapsed": 938.4901251792908,
+    "rc": 0
+  },
+  {
+    "algorithm": "ucb1",
+    "model": "qwen3:8b",
+    "run": 3,
+    "elapsed": 1166.1274309158325,
+    "rc": 0
+  },
+  {
+    "algorithm": "thompson",
+    "model": "qwen3:1.7b",
+    "run": 1,
+    "elapsed": 371.0995948314667,
+    "rc": 0
+  },
+  {
+    "algorithm": "thompson",
+    "model": "qwen3:1.7b",
+    "run": 2,
+    "elapsed": 755.9741861820221,
+    "rc": 0
+  },
+  {
+    "algorithm": "thompson",
+    "model": "qwen3:1.7b",
+    "run": 3,
+    "elapsed": 343.1763334274292,
+    "rc": 0
+  },
+  {
+    "algorithm": "thompson",
+    "model": "qwen3:8b",
+    "run": 1,
+    "elapsed": 744.3336420059204,
+    "rc": 0
+  },
+  {
+    "algorithm": "thompson",
+    "model": "qwen3:8b",
+    "run": 2,
+    "elapsed": 532.9001655578613,
+    "rc": 0
+  },
+  {
+    "algorithm": "thompson",
+    "model": "qwen3:8b",
+    "run": 3,
+    "elapsed": 694.4377801418304,
+    "rc": 0
+  },
+  {
+    "algorithm": "exp3",
+    "model": "qwen3:1.7b",
+    "run": 1,
+    "elapsed": 439.34157395362854,
+    "rc": 0
+  },
+  {
+    "algorithm": "exp3",
+    "model": "qwen3:1.7b",
+    "run": 2,
+    "elapsed": 520.1982741355896,
+    "rc": 0
+  },
+  {
+    "algorithm": "exp3",
+    "model": "qwen3:1.7b",
+    "run": 3,
+    "elapsed": 500.647828578949,
+    "rc": 0
+  },
+  {
+    "algorithm": "exp3",
+    "model": "qwen3:8b",
+    "run": 1,
+    "elapsed": 899.3318245410919,
+    "rc": 0
+  },
+  {
+    "algorithm": "exp3",
+    "model": "qwen3:8b",
+    "run": 2,
+    "elapsed": 912.9428555965424,
+    "rc": 0
+  },
+  {
+    "algorithm": "exp3",
+    "model": "qwen3:8b",
+    "run": 3,
+    "elapsed": 943.8499784469604,
+    "rc": 0
+  },
+  {
+    "algorithm": "eps_greedy",
+    "model": "qwen3:1.7b",
+    "run": 1,
+    "elapsed": 437.0639510154724,
+    "rc": 0
+  }
+]

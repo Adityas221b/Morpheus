@@ -19,10 +19,18 @@ import asyncio
 import base64
 import io
 import json
+import sys
+import os
 import time
 import urllib.request
 from abc import ABC, abstractmethod
 from typing import Any, Optional
+
+# Force UTF-8 encoding for all stdout/stderr on Windows
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 
 class ScorerBackend(ABC):
@@ -419,6 +427,69 @@ class HFScorerBackend(ScorerBackend):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# NVIDIA NIM (Remote API)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NIMScorerBackend(ScorerBackend):
+    """Calls NVIDIA NIM API (OpenAI-compatible) for scoring.
+
+    Config keys (settings.yaml -> scoring):
+      api_key    NVIDIA NIM API key (or env NIM_API_KEY)
+      model      Model ID (default: meta/llama-3.2-11b-vision-instruct)
+      base_url   API endpoint (default: https://integrate.api.nvidia.com/v1)
+    """
+
+    def __init__(self, config: dict, timeout: float = 120.0):
+        self.config = config
+        self.model = config.get("model", "meta/llama-3.2-11b-vision-instruct")
+        self.base_url = config.get("base_url", "https://integrate.api.nvidia.com/v1")
+        self.timeout = timeout
+        self.api_key = config.get("api_key") or os.environ.get("NIM_API_KEY", "")
+        if not self.api_key:
+            raise ValueError("NIMScorerBackend requires scoring.api_key or NIM_API_KEY env var.")
+
+    async def generate(
+        self,
+        prompt: str,
+        images: Optional[list[bytes]] = None,
+    ) -> str:
+        import base64 as b64
+
+        content: list[dict] = []
+        if images:
+            for img_bytes in images:
+                b64_img = b64.b64encode(img_bytes).decode("utf-8")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"},
+                })
+        content.append({"type": "text", "text": prompt})
+
+        payload = json.dumps({
+            "model": self.model,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": 1024,
+            "temperature": 0.0,
+        }).encode("utf-8")
+
+        def _do_request() -> str:
+            req = urllib.request.Request(
+                f"{self.base_url}/chat/completions",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read().decode())
+                return data["choices"][0]["message"]["content"].strip()
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _do_request)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Factory
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -433,6 +504,8 @@ def make_scorer_backend(
         return HFScorerBackend(config, timeout=timeout)
     if provider == "ollama":
         return OllamaScorerBackend(config, base_url=ollama_url, timeout=timeout)
+    if provider == "nim":
+        return NIMScorerBackend(config, timeout=timeout)
     raise ValueError(
-        f"Unknown scoring.provider={provider!r}. Expected one of: ollama, huggingface."
+        f"Unknown scoring.provider={provider!r}. Expected one of: ollama, huggingface, nim."
     )

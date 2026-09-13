@@ -3,11 +3,19 @@
 import base64
 import io
 import json
+import sys
+import os
 import urllib.error
 import urllib.request
 import asyncio
 from typing import Optional
 from PIL import Image
+
+# Force UTF-8 encoding for all stdout/stderr on Windows
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 from .base import BaseTarget, TargetResponse
 

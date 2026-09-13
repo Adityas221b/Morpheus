@@ -1,14 +1,14 @@
 server:
   ollama_url: "http://127.0.0.1:11434"
-  ollama_num_parallel: 4
-  concurrency: 4   # Recommended: set to 1 if hf_target
+  ollama_num_parallel: 2
+  concurrency: 2   # Safe for both qwen3:1.7b and qwen3:8b targets
 
 training:
-  epochs: 3
-  strategies_per_epoch: 3
-  max_attempts: 10
-  timeout_seconds: 150
-  retry_limit: 2
+  epochs: 1
+  strategies_per_epoch: 2
+  max_attempts: 3
+  timeout_seconds: 180
+  retry_limit: 1
   self_improve_after: 4
 
 
@@ -64,3 +64,44 @@ strategy_library:
 attack_modes:
   - text_only
 # - image_text
+
+# UCB Bandit strategy selection
+# Formulates strategy selection as a multi-armed bandit problem
+# using Upper Confidence Bound (UCB1) to balance exploitation vs exploration.
+# Supports: ucb1, thompson (Thompson Sampling), exp3 (EXP3), eps_greedy (epsilon-Greedy), ucb_v (UCB-V)
+bandit:
+  enabled: true                  # Enable bandit strategy selection
+  algorithm: "ucb1"              # Bandit algorithm: ucb1 | thompson | exp3 | eps_greedy | ucb_v
+  exploration_weight: 1.0         # UCB1/UCB-V exploration coefficient (higher = more exploration)
+  temperature: 0.0               # Softmax temperature for stochastic selection (0 = deterministic)
+
+# Multi-Pass strategy selection
+# Generate k candidate prompts per request, score all, return best.
+# Reference: ICML 2026 Scaling Plan — "k samples from the top bandit arm".
+multipass:
+  enabled: false                 # Enable multi-pass generation
+  k: 3                           # Number of candidates to generate per request
+
+# SoC (Sequence of Context) multi-turn attacks
+# Uses escalating prompts to gradually extract harmful content.
+# Reference: SoC Attack (ICLR 2025).
+soc:
+  enabled: false                 # Enable SoC multi-turn attacks
+  max_turns: 3                   # Maximum number of conversation turns
+
+# Self-Evolving Metacognition
+# Attacker critiques its own outputs and generates improved variants.
+# Reference: Self-Evolving Metacognition (ICLR 2025).
+metacognition:
+  enabled: false                 # Enable self-evolving metacognition
+
+# Genetic Algorithm for strategy evolution
+# Recombines and mutates bandit-selected strategies to discover novel attacks.
+genetic_algorithm:
+  enabled: true                 # Enable GA strategy evolution
+  population_size: 10            # Population size for GA
+  crossover_rate: 0.7            # Probability of crossover (vs cloning)
+  mutation_rate: 0.3             # Probability of mutation
+  elite_count: 2                 # Number of elite individuals to preserve
+  n_offspring: 3                 # Number of offspring to produce per generation
+  offspring_per_epoch: 2         # Max offspring to add to library per epoch

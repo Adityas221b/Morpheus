@@ -28,3 +28,6 @@ reports/09_platform_qualification_and_observability_tests.md
 *.bin
 *.safetensors
 *.gguf
+
+# ── Tool config ──────────────────────────────────────────────────────────
+.opencode/

@@ -9,8 +9,17 @@ Hugging Face transformers in-process.
 """
 
 import re
+import sys
+import os
+import io
 from dataclasses import dataclass
 from typing import Literal, Optional
+
+# Force UTF-8 encoding for all stdout/stderr on Windows
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 from .scorer_backends import OllamaScorerBackend, ScorerBackend
 

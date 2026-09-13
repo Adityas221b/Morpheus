@@ -1,10 +1,19 @@
 """Summarizer agent: distills successful jailbreak attempts into reusable strategies."""
 
 import json
+import sys
+import os
+import io
 import urllib.request
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
+
+# Force UTF-8 encoding for all stdout/stderr on Windows
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 
 @dataclass

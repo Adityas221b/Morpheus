@@ -1,7 +1,9 @@
-"""Strategy library — lightweight version without FAISS/sentence-transformers.
+"""Strategy library with multi-armed bandit selection.
 
-Uses simple keyword overlap for retrieval instead of vector search.
-Trades retrieval quality for near-zero memory footprint.
+Uses simple keyword overlap for retrieval by default. When bandit mode is
+enabled, supports UCB1, Thompson Sampling, EXP3, epsilon-Greedy, and UCB-V
+strategy selection. Also supports Multi-Pass and SoC (Sequence of Context)
+retrieval modes for advanced attack patterns.
 """
 
 import asyncio
@@ -12,6 +14,8 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 import random
+
+from .bandit import BanditFactory
 
 
 class StrategyLibrary:
@@ -29,7 +33,9 @@ class StrategyLibrary:
       examples[]                         — capped at last 5
     """
 
-    def __init__(self, path: str = "strategies/", filename: str = "library.jsonl", embedder=None):
+    def __init__(self, path: str = "strategies/", filename: str = "library.jsonl", embedder=None,
+                 bandit_mode: bool = False, exploration_weight: float = 1.0,
+                 bandit_algorithm: str = "ucb1", bandit_temperature: float = 0.0):
         self.path = Path(path)
         self.path.mkdir(parents=True, exist_ok=True)
         self.lib_file = self.path / filename
@@ -37,6 +43,17 @@ class StrategyLibrary:
         self.strategies: list[dict] = []
         self._queue: asyncio.Queue = asyncio.Queue()
         self._load()
+
+        # Multi-armed bandit integration
+        self.bandit_mode = bandit_mode
+        self.bandit_algorithm = bandit_algorithm
+        self.bandit_temperature = bandit_temperature
+        self.bandit = BanditFactory.create(
+            algorithm=bandit_algorithm,
+            exploration_weight=exploration_weight,
+        )
+        if bandit_mode:
+            self._init_bandit_from_library()
 
     @staticmethod
     def _now() -> str:
@@ -59,7 +76,7 @@ class StrategyLibrary:
     def _load(self):
         """Load strategies from disk, migrating older schemas in place."""
         if self.lib_file.exists():
-            with open(self.lib_file, "r") as f:
+            with open(self.lib_file, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         try:
@@ -67,12 +84,16 @@ class StrategyLibrary:
                         except json.JSONDecodeError:
                             pass
 
+    def _init_bandit_from_library(self):
+        """Warm-start bandit arms from loaded library entries."""
+        self.bandit.load_from_library(self.strategies)
+
     def save(self):
         """Persist strategies to disk."""
-        with open(self.lib_file, "w") as f:
+        with open(self.lib_file, "w", encoding="utf-8") as f:
             for s in self.strategies:
                 clean = {k: v for k, v in s.items() if k != "embedding"}
-                f.write(json.dumps(clean) + "\n")
+                f.write(json.dumps(clean, ensure_ascii=False) + "\n")
 
     def _keyword_score(self, query: str, strategy: dict) -> float:
         query_words = set(query.lower().split())
@@ -115,6 +136,13 @@ class StrategyLibrary:
 
         if existing_idx is None:
             self.strategies.append(strategy)
+            # Register new strategy with bandit if enabled
+            if self.bandit_mode:
+                self.bandit.register_strategy(
+                    strategy["id"],
+                    initial_pulls=strategy.get("success_count", 0) + strategy.get("failure_count", 0),
+                    initial_reward=strategy.get("success_count", 0),
+                )
             return
 
         old = self.strategies[existing_idx]
@@ -174,6 +202,11 @@ class StrategyLibrary:
                 s["failure_count"] = s.get("failure_count", 0) + 1
                 if target_model and target_model not in s["failed_models"]:
                     s["failed_models"].append(target_model)
+
+            # Update bandit arm
+            if self.bandit_mode:
+                reward = 1.0 if succeeded else 0.0
+                self.bandit.pull(strategy_id, reward=reward)
             return
 
     async def enqueue(self, strategy: Optional[dict]):
@@ -341,6 +374,163 @@ class StrategyLibrary:
         jittered = [(c + random.random() * 1e-6, s) for c, s in scored]
         jittered.sort(key=lambda x: x[0], reverse=True)
         return [dict(s) for _, s in jittered[:top_k]]
+
+    async def retrieve_bandit(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        top_k: int = 5,
+        target_model: Optional[str] = None,
+        temperature: float = 0.0,
+    ) -> list[dict]:
+        """Retrieve strategies using UCB1 bandit selection.
+
+        First filters candidates by category and target compatibility,
+        then uses UCB1 to select strategies that balance exploitation
+        of high-reward arms against exploration of uncertain ones.
+
+        Args:
+            query: The harmful request (for contextual filtering).
+            category: Restrict to strategies in this category.
+            top_k: Number of strategies to return.
+            target_model: Optional target model for per-model filtering.
+            temperature: Softmax temperature for stochastic selection (0 = deterministic).
+
+        Returns:
+            List of selected strategy dicts.
+        """
+        if not self.strategies or not self.bandit_mode:
+            return await self.retrieve(query, category, top_k, target_model)
+
+        # Filter candidates by category
+        candidates = self.strategies
+        if category:
+            cat_matches = [s for s in candidates if s.get("category") == category]
+            if cat_matches:
+                candidates = cat_matches
+
+        # Further filter by target model compatibility
+        if target_model:
+            # Prefer strategies that haven't failed on this target
+            compatible = [s for s in candidates if target_model not in s.get("failed_models", [])]
+            if compatible:
+                candidates = compatible
+
+        if not candidates:
+            return []
+
+        # Get candidate IDs
+        candidate_ids = [s.get("id") for s in candidates if s.get("id")]
+        if not candidate_ids:
+            return []
+
+        # Use UCB1 to select
+        selected_ids = self.bandit.select_with_context(
+            candidate_ids=candidate_ids,
+            top_k=top_k,
+            temperature=temperature,
+        )
+
+        # Map back to strategy dicts
+        id_to_strategy = {s.get("id"): s for s in candidates}
+        return [dict(id_to_strategy[sid]) for sid in selected_ids if sid in id_to_strategy]
+
+    def get_bandit_stats(self) -> list[dict]:
+        """Export bandit arm statistics for analysis."""
+        if self.bandit_mode:
+            return self.bandit.export_stats()
+        return []
+
+    async def retrieve_multipass(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        k: int = 3,
+        target_model: Optional[str] = None,
+    ) -> list[dict]:
+        """Multi-Pass strategy selection: sample k distinct strategies independently.
+
+        Each pass samples one strategy via the bandit, excluding previously selected.
+        Used for multi-candidate evaluation where we generate k variants and score each.
+        Reference: ICML 2026 Scaling Plan — "k samples from the top bandit arm".
+        """
+        if not self.strategies or not self.bandit_mode:
+            return await self.retrieve(query, category, k, target_model)
+
+        # Filter candidates
+        candidates = self.strategies
+        if category:
+            cat_matches = [s for s in candidates if s.get("category") == category]
+            if cat_matches:
+                candidates = cat_matches
+        if target_model:
+            compatible = [s for s in candidates if target_model not in s.get("failed_models", [])]
+            if compatible:
+                candidates = compatible
+
+        candidate_ids = [s.get("id") for s in candidates if s.get("id")]
+        if not candidate_ids:
+            return []
+
+        # Multi-pass: sample k distinct strategies via bandit
+        selected_ids = []
+        remaining_ids = list(candidate_ids)
+        for _ in range(min(k, len(remaining_ids))):
+            batch = self.bandit.select_with_context(
+                candidate_ids=remaining_ids,
+                top_k=1,
+                temperature=self.bandit_temperature,
+            )
+            if batch:
+                selected_ids.append(batch[0])
+                remaining_ids = [sid for sid in remaining_ids if sid != batch[0]]
+            else:
+                break
+
+        id_to_strategy = {s.get("id"): s for s in candidates}
+        return [dict(id_to_strategy[sid]) for sid in selected_ids if sid in id_to_strategy]
+
+    async def retrieve_contextual(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        top_k: int = 5,
+        target_model: Optional[str] = None,
+        context: Optional[dict] = None,
+    ) -> list[dict]:
+        """Contextual bandit retrieval with target model and category features.
+
+        Extends basic bandit selection with contextual features (target model,
+        attack category) to enable context-aware strategy selection.
+        Reference: JailbreakOPT (2026) — "Contextual Bandit with arm features".
+        """
+        if not self.strategies or not self.bandit_mode:
+            return await self.retrieve(query, category, top_k, target_model)
+
+        # Filter candidates
+        candidates = self.strategies
+        if category:
+            cat_matches = [s for s in candidates if s.get("category") == category]
+            if cat_matches:
+                candidates = cat_matches
+        if target_model:
+            compatible = [s for s in candidates if target_model not in s.get("failed_models", [])]
+            if compatible:
+                candidates = compatible
+
+        candidate_ids = [s.get("id") for s in candidates if s.get("id")]
+        if not candidate_ids:
+            return []
+
+        # Use bandit selection with temperature for contextual exploration
+        selected_ids = self.bandit.select_with_context(
+            candidate_ids=candidate_ids,
+            top_k=top_k,
+            temperature=self.bandit_temperature,
+        )
+
+        id_to_strategy = {s.get("id"): s for s in candidates}
+        return [dict(id_to_strategy[sid]) for sid in selected_ids if sid in id_to_strategy]
 
     @property
     def size(self) -> int:
