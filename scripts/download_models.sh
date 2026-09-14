@@ -21,12 +21,7 @@ download_model() {
     local name="$1"
     local repo="$2"
     echo ">>> Downloading: $name ($repo)"
-    huggingface-cli download "$repo" --resume-download
-    if [ $? -eq 0 ]; then
-        echo "  [OK] $name downloaded"
-    else
-        echo "  [FAIL] $name failed"
-    fi
+    huggingface-cli download "$repo" && echo "  [OK] $name downloaded" || echo "  [SKIP] $name failed (check auth or license)"
     echo ""
 }
 
