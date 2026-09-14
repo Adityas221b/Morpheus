@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # VLM Jailbreak Experiment Launcher
-# Run from: $HOME/Morpheus
+# Run from: $HOME/Morpheus (with conda env 'vlm' activated)
 # Starts with LOW safety models, progresses to HIGH safety
 # =============================================================================
 set -e
@@ -9,6 +9,12 @@ set -e
 cd "$(dirname "$0")/.."
 echo "Working dir: $(pwd)"
 echo "GPU: $(nvidia-smi -L | head -1)"
+
+# Fix thread limits on shared servers
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export HF_HUB_ENABLE_HYPERBOLIC_XET=0
+export TOKENIZERS_PARALLELISM=false
 
 ALGORITHM="${1:-ucb1}"
 RUNS="${2:-1}"
@@ -23,7 +29,7 @@ echo "=========================================="
 # Phase 1: LOW safety models (fast, high expected ASR)
 echo ""
 echo ">>> PHASE 1: Low safety models <<<"
-echo "  LLaVA 1.6 7B → Kimi-VL 3B → Qwen3-VL 4B"
+echo "  LLaVA 1.6 7B -> Kimi-VL 3B -> Qwen3-VL 4B"
 
 python3 run_vlm_hf.py --model llava-16-7b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase1_llava.log
 python3 run_vlm_hf.py --model kimi-vl-3b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase1_kimi.log
@@ -42,7 +48,7 @@ for f in sorted(glob.glob('logs/run_summary_vlm_*_run*.json')):
 # Phase 2: MEDIUM safety models
 echo ""
 echo ">>> PHASE 2: Medium safety models <<<"
-echo "  GLM-4V 9B → Qwen3-VL 8B → Llama 3.2 11B"
+echo "  GLM-4V 9B -> Qwen3-VL 8B -> Llama 3.2 11B"
 
 python3 run_vlm_hf.py --model glm4v-9b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase2_glm4v.log
 python3 run_vlm_hf.py --model qwen3-vl-8b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase2_qwen8b.log
@@ -54,7 +60,7 @@ echo ">>> PHASE 2 COMPLETE <<<"
 # Phase 3: HIGH safety models (INT4 quantized)
 echo ""
 echo ">>> PHASE 3: High safety models (INT4) <<<"
-echo "  Gemma3 27B → Qwen3-VL 32B"
+echo "  Gemma3 27B -> Qwen3-VL 32B"
 
 python3 run_vlm_hf.py --model gemma3-27b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase3_gemma27b.log
 python3 run_vlm_hf.py --model qwen3-vl-32b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase3_qwen32b.log
@@ -65,7 +71,7 @@ echo ">>> PHASE 3 COMPLETE <<<"
 # Phase 4: VERY HIGH safety models (large, INT4)
 echo ""
 echo ">>> PHASE 4: Very high safety models (INT4) <<<"
-echo "  Qwen3-VL 72B → InternVL 2.5 78B → Llama 3.2 90B → Molmo 72B"
+echo "  Qwen3-VL 72B -> InternVL 2.5 78B -> Llama 3.2 90B -> Molmo 72B"
 
 python3 run_vlm_hf.py --model qwen3-vl-72b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase4_qwen72b.log
 python3 run_vlm_hf.py --model internvl25-78b --algorithm "$ALGORITHM" --runs "$RUNS" --prompts "$PROMPTS" 2>&1 | tee logs/phase4_internvl.log
@@ -87,7 +93,6 @@ for f in sorted(glob.glob('logs/run_summary_vlm_*_run*.json')):
     r = json.load(open(f))
     results.append(r)
 
-# Sort by safety level (model size as proxy)
 print(f\"{'Model':<30} {'HF ID':<50} {'ASR':<8} {'Success':<10}\")
 print('-' * 100)
 for r in sorted(results, key=lambda x: x.get('hf_id', '')):

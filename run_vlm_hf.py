@@ -25,6 +25,12 @@ import urllib.request
 from pathlib import Path
 from datetime import datetime
 
+# Fix thread limits on shared servers (avoids Rust/pyo3 panics)
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+os.environ.setdefault("MKL_NUM_THREADS", "4")
+os.environ.setdefault("HF_HUB_ENABLE_HYPERBOLIC_XET", "0")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 _project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _project_root)
 
