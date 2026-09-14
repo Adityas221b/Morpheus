@@ -38,13 +38,13 @@ numpy>=1.24.0
 # H-Neuron experiments under src/h_neurons/. torch is also a hard requirement
 # here — see system prerequisites above for the right install command.
 torch>=2.1.0
-transformers>=4.44.0
+transformers>=4.45.0
 accelerate>=0.30.0       # device_map, mixed-precision, low-mem from_pretrained
 diffusers>=0.30.0        # text-to-image pipelines (SD/SDXL/FLUX/...)
 safetensors>=0.4.0       # primary weight format for transformers + diffusers
 sentencepiece>=0.2.0     # required by LLaMA / T5 / many HF tokenizers
 protobuf>=4.21           # required by some HF tokenizer/model config loaders
-# bitsandbytes
+bitsandbytes>=0.43.0     # INT4/INT8 quantization for large models
 # ── 4. Optional ────────────────────────────────────────────────────────────
 # Experiment tracking — uncomment if using wandb logging
 # wandb>=0.16.0

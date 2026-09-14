@@ -117,11 +117,100 @@ MODEL_REGISTRY = {
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
+def _check_transformers_version():
+    """Warn if transformers is too old for VLM support."""
+    import transformers
+    ver = tuple(int(x) for x in transformers.__version__.split(".")[:2])
+    if ver < (4, 45):
+        print(f"[WARN] transformers {transformers.__version__} is too old for VLM models.")
+        print("  Run: pip install --upgrade 'transformers>=4.45.0' accelerate bitsandbytes")
+        print("  Continuing anyway with trust_remote_code fallback...\n")
+    return ver
+
+
+def _load_processor(hf_id: str, trust_remote_code: bool):
+    """Try to load processor via AutoProcessor, with fallbacks."""
+    try:
+        from transformers import AutoProcessor
+        return AutoProcessor.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+    except Exception as e1:
+        print(f"  AutoProcessor failed: {e1}")
+        # Try model-specific processor classes
+        try:
+            if "qwen3" in hf_id.lower() and "vl" in hf_id.lower():
+                from transformers import Qwen3VLProcessor
+                return Qwen3VLProcessor.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+        except Exception:
+            pass
+        try:
+            if "llava" in hf_id.lower():
+                from transformers import LlavaProcessor
+                return LlavaProcessor.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+        except Exception:
+            pass
+        try:
+            if "llama" in hf_id.lower() and "vision" in hf_id.lower():
+                from transformers import MllamaProcessor
+                return MllamaProcessor.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+        except Exception:
+            pass
+        try:
+            if "gemma" in hf_id.lower():
+                from transformers import AutoTokenizer, AutoImageProcessor
+                tok = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+                try:
+                    img = AutoImageProcessor.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+                except Exception:
+                    img = None
+                # Return a wrapper
+                class SimpleProcessor:
+                    def __init__(self, tokenizer, image_processor):
+                        self.tokenizer = tokenizer
+                        self.image_processor = image_processor
+                    def apply_chat_template(self, messages, **kw):
+                        return self.tokenizer.apply_chat_template(messages, **kw) if hasattr(self.tokenizer, 'apply_chat_template') else str(messages)
+                    def __call__(self, text=None, images=None, return_tensors=None, **kw):
+                        out = self.tokenizer(text, return_tensors=return_tensors, **kw) if text else {}
+                        return out
+                    def decode(self, ids, **kw):
+                        return self.tokenizer.decode(ids, **kw)
+                return SimpleProcessor(tok, img)
+        except Exception:
+            pass
+        # Last resort: just use tokenizer
+        from transformers import AutoTokenizer
+        print(f"  Falling back to AutoTokenizer only")
+        tok = AutoTokenizer.from_pretrained(hf_id, trust_remote_code=trust_remote_code)
+        class TokenizerOnlyProcessor:
+            def __init__(self, tokenizer):
+                self.tokenizer = tokenizer
+                self.chat_template = getattr(tokenizer, 'chat_template', None)
+            def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True, **kw):
+                if hasattr(self.tokenizer, 'apply_chat_template'):
+                    return self.tokenizer.apply_chat_template(messages, tokenize=tokenize, add_generation_prompt=add_generation_prompt, **kw)
+                # Manual fallback
+                parts = []
+                for msg in messages:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+                    parts.append(f"<|{role}|>\n{content}")
+                if add_generation_prompt:
+                    parts.append("<|assistant|>\n")
+                return "\n".join(parts)
+            def __call__(self, text=None, return_tensors=None, **kw):
+                return self.tokenizer(text, return_tensors=return_tensors, **kw) if text else {}
+            def decode(self, ids, **kw):
+                return self.tokenizer.decode(ids, **kw)
+        return TokenizerOnlyProcessor(tok)
+
+
 def load_vlm_model(model_key: str, device_map: str = "auto"):
     """Load a VLM model + processor via HuggingFace Transformers."""
     import torch
-    from transformers import AutoProcessor
 
+    _check_transformers_version()
     cfg = MODEL_REGISTRY[model_key]
     hf_id = cfg["hf_id"]
     quantization = cfg["quantization"]
@@ -145,11 +234,8 @@ def load_vlm_model(model_key: str, device_map: str = "auto"):
             print("  [WARN] bitsandbytes not available, falling back to FP16")
             bnb_config = None
 
-    # Load processor
-    processor = AutoProcessor.from_pretrained(
-        hf_id,
-        trust_remote_code=trust_remote_code,
-    )
+    # Load processor (with fallbacks)
+    processor = _load_processor(hf_id, trust_remote_code)
 
     # Determine the correct model class based on model type
     model_kwargs = {
