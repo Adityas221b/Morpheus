@@ -62,6 +62,7 @@ MODEL_REGISTRY = {
         "quantization": None,
         "max_new_tokens": 1024,
         "trust_remote_code": False,
+        "model_class": "llava_next",
     },
     "llama32-vision-11b": {
         "hf_id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
@@ -264,6 +265,12 @@ def load_vlm_model(model_key: str, device_map: str = "auto"):
         except ImportError:
             pass
     elif "llava" in hf_id.lower():
+        # Try LlavaNext first (llava-v1.6 repos now serve next format)
+        try:
+            from transformers import LlavaNextForConditionalGeneration
+            model_classes_to_try.append(("LlavaNextForConditionalGeneration", LlavaNextForConditionalGeneration))
+        except ImportError:
+            pass
         try:
             from transformers import LlavaForConditionalGeneration
             model_classes_to_try.append(("LlavaForConditionalGeneration", LlavaForConditionalGeneration))
